@@ -80,7 +80,6 @@ export const decodeToken = async ({
   const user = await findOne({
     model: userModel,
     filter: { _id: verifiedData.sub },
-    select: "-oldPassword -password",
   });
   if (!user) {
     throw NotFoundException({ message: "Not register account" });

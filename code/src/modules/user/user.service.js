@@ -14,7 +14,12 @@ import {
   RoleEnum,
 } from "../../common/index.js";
 import { resolve } from "node:path";
-import { findById, findOne, findOneAndUpdate } from "../../DB/db.repository.js";
+import {
+  findById,
+  findOne,
+  findOneAndUpdate,
+  updateOne,
+} from "../../DB/db.repository.js";
 import { userModel } from "../../DB/model/user.model.js";
 import { unlink } from "node:fs/promises";
 export const profile = (user) => {
@@ -23,7 +28,6 @@ export const profile = (user) => {
 
 export const updatePassword = async (inputs, user, issuer) => {
   const { oldPassword, password } = inputs;
-
   if (user.provider !== ProviderEnum.SYSTEM) {
     throw BadRequestException({ message: "Invalid Provider" });
   }
@@ -32,6 +36,20 @@ export const updatePassword = async (inputs, user, issuer) => {
     !(await compareHash({ plaintext: oldPassword, ciphertext: user.password }))
   ) {
     throw BadRequestException({ message: "Invalid old Password" });
+  }
+  const account = await findOneAndUpdate({
+    model: userModel,
+    filter: { _id: user._id, confirmEmail: { $exists: true } },
+    update: {
+      $set: {
+        password: await generateHash({ plaintext: password }),
+        changeCredentialsTime: new Date(),
+      },
+      $push: { oldPassword: user.password },
+    },
+  });
+  if (!account) {
+    throw BadRequestException({ message: "Not Matched Account" });
   }
 
   for (const hash of user.oldPassword ?? []) {
@@ -42,21 +60,9 @@ export const updatePassword = async (inputs, user, issuer) => {
     }
   }
 
-  const account = await findOneAndUpdate({
-    model: userModel,
-    filter: { _id: user._id },
-    update: {
-      password: await generateHash({ plaintext: password }),
-      changeCredentialsTime: new Date(),
-      $push: { oldPassword: user.password },
-    },
-  });
-  if (!account) {
-    throw BadRequestException({ message: "Not Matched Account" });
-  }
   const tokenKeys = await keys(baseRevokeTokenKey(user._id));
   if (tokenKeys.length) await deleteKey(tokenKeys);
-  return createLoginCredentials(account, issuer);
+  return await createLoginCredentials(account, issuer);
 };
 
 export const shareProfileNotLoginnedUser = async (id) => {
